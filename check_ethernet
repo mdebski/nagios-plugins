@@ -1,0 +1,135 @@
+#!/bin/bash
+
+# Check for ethernet speed by interface name
+# Maciej Debski <winemore@staszic.waw.pl>
+# changelog:
+# mdyzio 20121206 added function human_readable
+
+REVISION=0.1.1
+PROGNAME=`basename $0`
+PROGPATH='/usr/lib/nagios/plugins/'
+
+. $PROGPATH/utils.sh
+
+usage () {
+    echo "\
+Nagios plugin to check ethernet speed via snmp given interface name.
+
+Usage:
+  $PROGNAME -H <host> -i <interface>
+Options:
+  --help	Display help
+  --version	Display	plugin version
+  -H		Host
+  -i		Interface name (ex. eth0)
+  -v		SNMP version
+  -C		Community string
+  -c,-w		Intervals for critical/warning
+"
+}
+
+help () {
+    print_revision $PROGNAME $REVISION
+    echo; usage; support
+}
+
+if [ $# -lt 1 ]; then
+    usage
+    exit $STATE_UNKNOWN
+fi
+
+community="public"
+version="2c"
+criticalfrom="0"
+criticalto="0"
+warningfrom="0"
+warningto="0"
+
+while test -n "$1"; do
+    case "$1" in
+	--help | -h)
+	    help
+	    exit $STATE_OK;;
+	--version | -V)
+	    print_revision $PROGNAME $REVISION
+	    exit $STATE_OK;;
+	-H)
+	    shift
+	    host="$1";;
+	-i)
+	    shift
+	    interface="$1";;
+	-c)
+	    shift
+	    criticalfrom=$(echo "$1" | cut -d: -f1)
+	    criticalto=$(echo "$1" | cut -d: -f2);;
+	-w)
+	    shift
+	    warningfrom=$(echo "$1" | cut -d: -f1)
+	    warningto=$(echo "$1" | cut -d: -f2);;
+	-C)
+	    shift
+	    community="$1";;
+	-v)
+	    shift
+	    version="$1";;
+	*)
+	    usage; exit $STATE_UNKNOWN;;
+    esac
+shift
+done
+
+out=$(snmpwalk -c $community -v${version} $host 'ifDescr' 2>&1;
+      snmpwalk -c $community -v${version} $host 'ifAlias' 2>&1)
+if [ ! $? -eq 0 ]; then
+	echo "UNKNOWN 1:$out"
+	exit $STATE_UNKNOWN
+fi
+eth=$(echo "$out" | tr '#' '\n' | grep ' '$interface'$')
+if [ ! $(echo "$eth" | wc -l) -eq 1  ]; then
+	echo "UNKNOWN 2:$eth"
+	exit $STATE_UNKNOWN
+fi
+ethnum=$(echo "$eth" | sed -r 's/.*(ifAlias|ifDescr)\.([0-9][0-9]*).*/\2/')
+if [[ ! $ethnum =~ [0-9][0-9]* ]]; then
+	echo "UNKNOWN 3:$ethnum"
+	exit $STATE_UNKNOWN
+fi
+out=$(snmpget -c $community -v${version} $host "ifSpeed.$ethnum" )
+if [ ! $? -eq 0 ]; then
+	echo "UNKNOWN 4:$out"
+	exit $STATE_UNKNOWN
+fi
+if [ ! $(echo "$out" | wc -l) -eq 1  ]; then
+	echo "UNKNOWN 5:$out"
+	exit $STATE_UNKNOWN
+fi
+speed=$(echo "$out" | sed 's/.*Gauge32: \([0-9][0-9]*\).*/\1/')
+if [[ ! $speed =~ [0-9][0-9]* ]]; then
+	echo "UNKNOWN 6:$speed"
+	exit $STATE_UNKNOWN
+fi
+
+human_readable() {
+	if [ "$1" -ge 1000000 ]; then # >=1m
+		if [ "$1" -ge 1000000000 ]; then # >=1g
+			echo "$(($1/1000000000))g"
+		else
+			echo "$(($1/1000000))m"
+		fi
+	else
+		echo "$1"
+	fi
+}
+
+if [ "$speed" -lt "$criticalfrom" ] || [ "$speed" -gt "$criticalto" ] ; then
+	echo "CRITICAL $(human_readable $speed)"
+	exit $STATE_CRITICAL
+fi
+if [ "$speed" -lt "$warningfrom" ] || [ "$speed" -gt "$warningto" ] ; then
+	echo "WARNING $(human_readable  $speed)"
+	exit $STATE_WARNING
+fi
+
+echo "OK $(human_readable $speed)"
+exit $STATE_OK

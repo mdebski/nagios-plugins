@@ -1,0 +1,20 @@
+#!/bin/bash
+# Check if git repository in given directory is up to date.
+
+PLUGINS_PATH="/usr/lib/nagios/plugins"
+
+. $PLUGINS_PATH/utils.sh
+
+if [ $# -ne 1 ]; then
+ echo "UNKNOWN: $0 plugin needs 1 arguments - directory"
+ exit $STATE_UNKNOWN
+fi
+
+(cd $1 && git status | grep "nothing to commit (working directory clean)" > /dev/null 2>&1)
+if [ $? -eq 0 ]; then
+	echo "OK: nothing to commit"	
+	exit $STATE_OK
+fi
+
+echo "WARNING: uncommited changes in $1"
+exit $STATE_WARNING

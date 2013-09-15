@@ -1,0 +1,20 @@
+#!/bin/bash
+# Check host just by checking if is resolved by public dns.
+
+DNS=8.8.4.4
+PLUGINS_PATH="/usr/lib/nagios/plugins"
+
+. $PLUGINS_PATH/utils.sh
+
+PREFIX="$1 has address "
+IP_REGEX='^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'
+
+IP=$(host $1 $DNS | grep "$PREFIX" | head -1 | sed "s/$PREFIX//")
+
+if [[ $IP =~  $IP_REGEX ]]; then
+ echo "OK: ip is $IP"
+ exit $STATE_OK
+else
+ echo "CRITICAL"
+ exit $STATE_CRITICAL
+fi
